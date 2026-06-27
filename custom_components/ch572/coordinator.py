@@ -1,7 +1,7 @@
 """CH572 运行时协调器。
 
 轻量容器（不轮询）：持有 CH572Device，把 CHAR4 notify 分发给注册的实体，
-并在绑定成功时把 appId 持久化到 config entry。
+绑定成功时持久化 appId，并维护设备在线/离线状态（驱动实体 available）。
 """
 import logging
 from collections.abc import Callable
@@ -28,14 +28,22 @@ class CH572DataUpdateCoordinator(DataUpdateCoordinator[None]):
         app_id_hex: str = entry.data.get(CONF_APP_ID, "")
         app_id = bytes.fromhex(app_id_hex) if app_id_hex else None
 
+        self._available = False  # 连接建立前视为离线
+        self._availability_callbacks: list[Callable[[bool], None]] = []
+        self._notify_callbacks: list[Callable[[int], None]] = []
+
         self.device = CH572Device(
             hass,
             address,
             app_id,
             on_notify=self._dispatch_notify,
             on_app_id_persisted=self._persist_app_id,
+            on_connection_state=self.set_available,
         )
-        self._notify_callbacks: list[Callable[[int], None]] = []
+
+    @property
+    def available(self) -> bool:
+        return self._available
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -52,8 +60,8 @@ class CH572DataUpdateCoordinator(DataUpdateCoordinator[None]):
             return f"{parts[-2].upper()}{parts[-1].upper()}"
         return self.address
 
+    # ---------- notify 分发 ----------
     def register_notify_callback(self, cb: Callable[[int], None]) -> Callable[[], None]:
-        """实体注册 notify 回调，返回取消函数。"""
         self._notify_callbacks.append(cb)
 
         def _remove() -> None:
@@ -67,9 +75,28 @@ class CH572DataUpdateCoordinator(DataUpdateCoordinator[None]):
         for cb in list(self._notify_callbacks):
             cb(byte_val)
 
+    # ---------- 在线/离线（驱动实体 available） ----------
+    def register_availability_callback(self, cb: Callable[[bool], None]) -> Callable[[], None]:
+        self._availability_callbacks.append(cb)
+
+        def _remove() -> None:
+            if cb in self._availability_callbacks:
+                self._availability_callbacks.remove(cb)
+
+        return _remove
+
+    @callback
+    def set_available(self, available: bool) -> None:
+        if self._available == available:
+            return
+        self._available = available
+        _LOGGER.info("%s: %s", self.address, "在线" if available else "离线")
+        for cb in list(self._availability_callbacks):
+            cb(available)
+
+    # ---------- appId 持久化 ----------
     @callback
     def _persist_app_id(self, app_id_hex: str) -> None:
-        """绑定成功后把 appId 写回 config entry（下次重连走认证）。"""
         data = dict(self.entry.data)
         data[CONF_APP_ID] = app_id_hex
         self.hass.async_create_task(self._async_persist(data))
@@ -78,6 +105,7 @@ class CH572DataUpdateCoordinator(DataUpdateCoordinator[None]):
         await self.hass.config_entries.async_update_entry(self.entry, data=data)
         _LOGGER.info("%s: 已持久化绑定 appId", self.address)
 
+    # ---------- 生命周期 ----------
     async def async_setup(self) -> None:
         await self.device.start()
 

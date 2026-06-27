@@ -35,10 +35,12 @@ NOTIFY_AUTH_OK = 0xA2
 NOTIFY_AUTH_FAIL = 0xA3
 # 按键事件
 NOTIFY_KEY_SHORT = 0xB0
+NOTIFY_KEY_DOUBLE = 0xB2
 NOTIFY_KEY_LONG = 0xB1
 
 # ---------- event 实体的事件类型 ----------
 EVENT_SHORT_PRESS = "short_press"
+EVENT_DOUBLE_PRESS = "double_press"
 EVENT_LONG_PRESS = "long_press"
 
 # ---------- 配置字段 ----------
@@ -46,4 +48,4 @@ CONF_ADDRESS = "address"
 CONF_APP_ID = "app_id"   # 持久化的绑定凭证（16 字节，hex 字符串）
 
 # 默认名称
-DEFAULT_NAME = "CH572"
+DEFAULT_NAME = "BatteryGuard"

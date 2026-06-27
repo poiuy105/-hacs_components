@@ -49,12 +49,14 @@ class CH572Device:
         app_id: bytes | None,
         on_notify: Callable[[int], None],
         on_app_id_persisted: Callable[[str], None],
+        on_connection_state: Callable[[bool], None] | None = None,
     ) -> None:
         self._hass = hass
         self._address = address
         self._app_id = app_id  # 已持久化的 appId；None 表示首次需绑定
         self._on_notify = on_notify
         self._on_app_id_persisted = on_app_id_persisted
+        self._on_connection_state = on_connection_state
 
         self._client: BleakClient | None = None
         self._reconnect_task: asyncio.Task | None = None
@@ -128,6 +130,7 @@ class CH572Device:
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         _LOGGER.warning("%s: 连接断开", self._address)
+        self._set_connection_state(False)
         do_handshake = self._authenticated
         self._authenticated = False
         if self._stop_requested or self._auth_failed:
@@ -145,6 +148,7 @@ class CH572Device:
                 await self._ensure_connected()
                 if do_handshake:
                     await self._do_handshake()
+                self._set_connection_state(True)
                 return
             except (BleakError, asyncio.TimeoutError) as err:
                 _LOGGER.debug(
@@ -190,6 +194,11 @@ class CH572Device:
         if fut is not None and not fut.done():
             fut.set_result((ok, reason))
 
+    def _set_connection_state(self, online: bool) -> None:
+        """通知上层连接在线状态（用于实体 available）。bleak 回调可能在非事件循环线程，marshal 到事件循环。"""
+        if self._on_connection_state:
+            self._hass.loop.call_soon_threadsafe(self._on_connection_state, online)
+
     # ---------- 绑定握手 ----------
     async def _do_handshake(self) -> tuple[bool, str]:
         is_bind = self._app_id is None
@@ -229,6 +238,7 @@ class CH572Device:
         ok, reason = await self._do_handshake()
         if not ok:
             raise BleakError(f"绑定/认证失败: {reason}")
+        self._set_connection_state(True)
 
     async def stop(self) -> None:
         self._stop_requested = True
