@@ -23,6 +23,7 @@ from .const import (
     CHAR_WRITE_UUID,
     CMD_AUTH,
     CMD_BIND,
+    CMD_QUERY_STATUS,
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
     NOTIFY_AUTH_FAIL,
@@ -37,6 +38,8 @@ CONNECT_TIMEOUT = timedelta(seconds=30)
 HANDSHAKE_TIMEOUT = 10  # 握手等待 notify 回复的超时（秒）
 RECONNECT_MIN_DELAY = 5
 RECONNECT_MAX_DELAY = 300
+HEARTBEAT_INTERVAL = 10   # 心跳间隔（秒）
+HEARTBEAT_MAX_MISSED = 3  # 连续无响应次数达到此值判离线（≈30s）
 
 
 class CH572Device:
@@ -66,6 +69,9 @@ class CH572Device:
         self._authenticated = False
         self._auth_failed = False  # 绑定/认证失败，停止自动重连
         self._handshake_future: asyncio.Future | None = None
+        self._heartbeat_task: asyncio.Task | None = None
+        self._heartbeat_pending = False
+        self._heartbeat_missed = 0
 
     @property
     def authenticated(self) -> bool:
@@ -170,6 +176,11 @@ class CH572Device:
 
     @callback
     def _process_notify(self, val: int) -> None:
+        # 收到任意 notify = 设备在线，重置心跳计数并恢复 available
+        self._heartbeat_pending = False
+        self._heartbeat_missed = 0
+        self._set_connection_state(True)
+
         if val == NOTIFY_BIND_OK:
             self._authenticated = True
             self._resolve_handshake(True, "bind_ok")
@@ -198,6 +209,32 @@ class CH572Device:
         """通知上层连接在线状态（用于实体 available）。bleak 回调可能在非事件循环线程，marshal 到事件循环。"""
         if self._on_connection_state:
             self._hass.loop.call_soon_threadsafe(self._on_connection_state, online)
+
+    async def _heartbeat_loop(self) -> None:
+        """定期发 query 探活，连续 HEARTBEAT_MAX_MISSED 次无 notify 响应判离线。"""
+        while not self._stop_requested:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+            if self._stop_requested or self._auth_failed:
+                continue
+            if not self._client or not self._client.is_connected:
+                continue
+            if self._heartbeat_pending:
+                # 上次心跳未收到 notify 响应
+                self._heartbeat_missed += 1
+                _LOGGER.debug("%s: 心跳无响应 (%d/%d)",
+                              self._address, self._heartbeat_missed, HEARTBEAT_MAX_MISSED)
+                if self._heartbeat_missed >= HEARTBEAT_MAX_MISSED:
+                    self._set_connection_state(False)
+            else:
+                self._heartbeat_missed = 0
+            # 发心跳 query，设备回 relay_state notify
+            self._heartbeat_pending = True
+            try:
+                async with self._lock:
+                    await self._client.write_gatt_char(
+                        CHAR_WRITE_UUID, bytes([CMD_QUERY_STATUS]), response=True)
+            except (BleakError, asyncio.TimeoutError) as err:
+                _LOGGER.debug("%s: 心跳 write 失败: %s", self._address, err)
 
     # ---------- 绑定握手 ----------
     async def _do_handshake(self) -> tuple[bool, str]:
@@ -239,9 +276,20 @@ class CH572Device:
         if not ok:
             raise BleakError(f"绑定/认证失败: {reason}")
         self._set_connection_state(True)
+        # 启动心跳探活
+        self._heartbeat_pending = False
+        self._heartbeat_missed = 0
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def stop(self) -> None:
         self._stop_requested = True
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._heartbeat_task = None
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
             try:

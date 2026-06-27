@@ -66,12 +66,8 @@ class CH572RelaySwitch(SwitchEntity):
             self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:  # noqa: ANN003
+        # 不乐观更新，状态以硬件 CHAR4 notify 回报为准
         await self._coordinator.device.turn_relay_on()
-        # 乐观更新；真实状态以 CHAR4 notify 回报为准
-        self._attr_is_on = True
-        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:  # noqa: ANN003
         await self._coordinator.device.turn_relay_off()
-        self._attr_is_on = False
-        self.async_write_ha_state()
