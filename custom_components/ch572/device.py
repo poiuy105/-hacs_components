@@ -13,7 +13,6 @@ from datetime import timedelta
 from bleak import BleakClient, BleakError
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import (
-    BleakClientWithRetry,
     establish_connection,
     retry_bluetooth_connection_error,
 )
@@ -60,7 +59,7 @@ class CH572Device:
         self._on_notify = on_notify
         self._on_app_id_persisted = on_app_id_persisted
 
-        self._client: BleakClientWithRetry | None = None
+        self._client: BleakClient | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._stop_requested = False
         self._lock = asyncio.Lock()
@@ -86,7 +85,7 @@ class CH572Device:
             return
         data = bytes([cmd]) + payload
 
-        @retry_bluetooth_connection_error(retries=3)
+        @retry_bluetooth_connection_error
         async def _write() -> None:
             client = await self._ensure_connected()
             await client.write_gatt_char(CHAR_WRITE_UUID, data, response=True)
@@ -108,7 +107,7 @@ class CH572Device:
             self._hass, self._address, connectable=True
         )
 
-    async def _ensure_connected(self) -> BleakClientWithRetry:
+    async def _ensure_connected(self) -> BleakClient:
         if self._client is not None and self._client.is_connected:
             return self._client
         ble_device = self._get_ble_device()
