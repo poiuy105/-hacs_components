@@ -50,8 +50,8 @@ class CH572DataUpdateCoordinator(DataUpdateCoordinator[None]):
         return DeviceInfo(
             identifiers={(DOMAIN, self.entry.unique_id or self.address)},
             name=f"{DEFAULT_NAME} {self._short()}",
-            manufacturer="WCH",
-            model="CH572 BatteryGuard",
+            manufacturer="MrBoal",
+            model="BatteryGuard v1.0",
         )
 
     def _short(self) -> str:
