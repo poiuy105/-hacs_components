@@ -12,10 +12,7 @@ from datetime import timedelta
 
 from bleak import BleakClient, BleakError
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import (
-    establish_connection,
-    retry_bluetooth_connection_error,
-)
+from bleak_retry_connector import establish_connection
 
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant, callback
@@ -84,15 +81,18 @@ class CH572Device:
             _LOGGER.warning("%s: 命令 0x%02X 被忽略（未认证）", self._address, cmd)
             return
         data = bytes([cmd]) + payload
-
-        @retry_bluetooth_connection_error
-        async def _write() -> None:
-            client = await self._ensure_connected()
-            await client.write_gatt_char(CHAR_WRITE_UUID, data, response=True)
-            _LOGGER.debug("%s: wrote %s", self._address, data.hex())
-
-        async with self._lock:
-            await _write()
+        last_err: Exception | None = None
+        for _ in range(3):
+            try:
+                client = await self._ensure_connected()
+                async with self._lock:
+                    await client.write_gatt_char(CHAR_WRITE_UUID, data, response=True)
+                _LOGGER.debug("%s: wrote %s", self._address, data.hex())
+                return
+            except (BleakError, asyncio.TimeoutError) as err:
+                last_err = err
+                await asyncio.sleep(0.5)
+        raise BleakError(f"写入失败: {last_err}")
 
     async def _send_raw(self, cmd: int, payload: bytes = b"") -> None:
         """握手命令，不受 authenticated 限制。"""
