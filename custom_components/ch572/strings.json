@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "bluetooth_confirm": {
+        "title": "CH572 设备",
+        "description": "发现 CH572 设备 `{name}`，确认添加。首次连接将自动完成绑定。",
+        "data": {}
+      },
+      "user": {
+        "title": "CH572 设备",
+        "description": "手动添加 CH572 设备（填 MAC 地址）。",
+        "data": {
+          "address": "设备 MAC 地址"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "该设备已配置",
+      "already_in_progress": "配置流程已在进行中",
+      "no_devices_found": "未发现 CH572 设备",
+      "not_supported": "设备不支持"
+    }
+  },
+  "entity": {
+    "switch": {
+      "relay": {
+        "name": "继电器灯",
+        "state": {
+          "on": "开",
+          "off": "关"
+        }
+      }
+    },
+    "event": {
+      "button": {
+        "name": "按键事件",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "short_press": "短按",
+              "long_press": "长按(解绑)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
