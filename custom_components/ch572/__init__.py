@@ -16,7 +16,7 @@ from .coordinator import CH572DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SWITCH, Platform.EVENT]
+PLATFORMS = [Platform.SWITCH, Platform.EVENT, Platform.LIGHT]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

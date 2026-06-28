@@ -23,6 +23,10 @@ from .const import (
     CHAR_WRITE_UUID,
     CMD_AUTH,
     CMD_BIND,
+    CMD_LED_BREATHE,
+    CMD_LED_BRIGHTNESS,
+    CMD_LED_COLOR,
+    CMD_LED_OFF,
     CMD_QUERY_STATUS,
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
@@ -30,6 +34,8 @@ from .const import (
     NOTIFY_AUTH_OK,
     NOTIFY_BIND_FAIL,
     NOTIFY_BIND_OK,
+    NOTIFY_LED_ERR,
+    NOTIFY_LED_OK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,6 +89,23 @@ class CH572Device:
 
     async def turn_relay_off(self) -> None:
         await self._send(CMD_RELAY_OFF)
+
+    # ---------- LED 控制命令 ----------
+    async def set_led_color(self, color: int) -> None:
+        """设置 LED 固定颜色 (0~7)。"""
+        await self._send(CMD_LED_COLOR, bytes([color & 0x07]))
+
+    async def set_led_brightness(self, brightness: int) -> None:
+        """设置 LED 亮度 (0~63)。"""
+        await self._send(CMD_LED_BRIGHTNESS, bytes([brightness & 0x3F]))
+
+    async def set_led_breathe(self, color: int, speed: int) -> None:
+        """启动 LED 呼吸灯。"""
+        await self._send(CMD_LED_BREATHE, bytes([color & 0x07, speed & 0x03]))
+
+    async def set_led_off(self) -> None:
+        """关闭 LED。"""
+        await self._send(CMD_LED_OFF)
 
     async def _send(self, cmd: int, payload: bytes = b"") -> None:
         if not self._authenticated:
